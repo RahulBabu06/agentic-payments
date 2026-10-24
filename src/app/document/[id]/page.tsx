@@ -7,11 +7,12 @@ import { Invoice, money } from "@/lib/domain";
 export default function Document({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [receiptState, setReceiptState] = useState<"legacy" | "pending" | "sent">("pending");
   const [error, setError] = useState("");
-  useEffect(() => { api(`checkout/${id}`).then(d => setInvoice(d.invoice)).catch(e => setError(errorText(e))); }, [id]);
+  useEffect(() => { api(`checkout/${id}`).then(d => { setInvoice(d.invoice); setReceiptState(!d.order ? "legacy" : d.order.receiptSentAt ? "sent" : "pending"); }).catch(e => setError(errorText(e))); }, [id]);
   return <div className="document-shell"><div className="no-print customer-header"><Brand /><div><Link className="button secondary" href={`/pay/${id}`}>Back to checkout</Link> <button className="button dark" onClick={() => window.print()}>Print / Save PDF</button></div></div><TestBanner />
     <main className="document card">{!invoice ? <p>{error || "Loading document…"}</p> : <>
-      <div className="document-heading"><div><h1>{invoice.status === "paid" ? "Payment receipt" : "Invoice"}</h1><p>{invoice.number}{invoice.status === "paid" ? "-R" : ""}</p></div><div><h3>Demo Studio</h3><p>VoicePay test workspace</p><strong>DEVNET TEST · NO MONETARY VALUE</strong></div></div>
+      <div className="document-heading"><div><h1>{invoice.status === "paid" ? receiptState === "pending" ? "Payment confirmation" : "Payment receipt" : "Invoice"}</h1><p>{invoice.number}{invoice.status === "paid" && receiptState !== "pending" ? "-R" : ""}</p>{invoice.status === "paid" && receiptState === "pending" && <p>The business has not sent its receipt yet. This is an on-chain payment confirmation.</p>}</div><div><h3>{invoice.merchantName || "Legacy Demo Studio"}</h3><p>{invoice.merchantArea || "VoicePay test workspace"}<br />Fictional merchant · simulated verification</p><strong>DEVNET TEST · NO MONETARY VALUE</strong></div></div>
       <div className="form-row"><div><p className="eyebrow">BILLED TO</p><h2>{invoice.customer}</h2></div><div><p>Created: {new Date(invoice.createdAt).toLocaleDateString()}</p>{invoice.dueDate && <p>Due: {invoice.dueDate}</p>}<p>Status: {invoice.status === "paid" ? "Paid · finalized" : "Awaiting payment"}</p></div></div>
       <table><thead><tr><th>Description</th><th>Quantity</th><th>Unit price</th><th>Amount</th></tr></thead><tbody>{invoice.lines.map((l, i) => <tr key={i}><td>{l.description}</td><td>{l.quantity}</td><td>{money(l.unitCents)}</td><td>{money(l.quantity * l.unitCents)}</td></tr>)}</tbody></table>
       <div className="invoice-total"><span>{invoice.status === "paid" ? "Total received" : "Total due"}</span><strong>{(invoice.totalCents / 100).toFixed(2)} test USDC</strong></div>

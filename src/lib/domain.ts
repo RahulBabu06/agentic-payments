@@ -25,6 +25,9 @@ export type Invoice = Draft & {
   totalCents: number;
   reference: string | null;
   merchant: string | null;
+  merchantId?: string;
+  merchantName?: string;
+  merchantArea?: string;
   signature: string | null;
   settlement: string | null;
   createdAt: string;

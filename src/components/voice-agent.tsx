@@ -4,13 +4,16 @@ import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { api, errorText } from "./shared";
+import type { Cart } from "@/lib/catalog";
 
-type Item = { id: string; quantity: number };
 type Props = {
   scope: "order" | "checkout";
   invoiceId?: string;
-  current?: { items: Item[] };
-  onOrder?: (order: { items: Item[] }) => void;
+  current?: Cart;
+  onOrder?: (order: Cart) => void;
+  requestId?: string;
+  pendingOrderId?: string;
+  onResult?: (result: any) => void;
   disabled?: boolean;
 };
 
@@ -91,10 +94,11 @@ function VoiceSession(props: Props) {
             try {
               const message = z.string().trim().min(1).max(2000).parse(parameters.message);
               const before = JSON.stringify(latest.current.current);
-              const result = await api("voice/turn", "POST", { context, message, current: latest.current.current });
+              const result = await api("voice/turn", "POST", { context, message, current: latest.current.current, requestId: latest.current.requestId, pendingOrderId: latest.current.pendingOrderId });
               if (!active.current || generation.current !== run || latest.current.disabled) return "Session ended. No order was changed.";
               if (before !== JSON.stringify(latest.current.current)) return "The customer changed the on-screen order. Ask them to repeat their request.";
-              if (result.order) latest.current.onOrder?.(result.order);
+              if (latest.current.onResult) latest.current.onResult(result);
+              else if (result.order) latest.current.onOrder?.(result.order);
               return result.say;
             } catch (err) {
               const text = errorText(err);

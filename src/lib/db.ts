@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Draft, Invoice, totalCents } from "./domain";
+import { getMerchant, merchants } from "./merchants";
 
 let instance: DatabaseSync;
 export function db() {
@@ -15,6 +16,12 @@ export function db() {
     CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS payments (signature TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, outcome TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS customer_sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS customer_orders (
+      id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, merchant_id TEXT NOT NULL,
+      request_id TEXT NOT NULL, invoice_id TEXT UNIQUE, body TEXT NOT NULL,
+      UNIQUE(customer_id, request_id)
+    );
     CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS prepared (hash TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS submissions (signature TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, status TEXT NOT NULL);
@@ -32,12 +39,14 @@ export function getInvoice(id: string): Invoice | null {
 export function saveInvoice(invoice: Invoice) {
   db().prepare("INSERT INTO invoices(id,body) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body").run(invoice.id, JSON.stringify(invoice));
 }
-export function createInvoice(draft: Draft) {
+export function createInvoice(draft: Draft, merchantId = merchants[0].id) {
+  const merchant = getMerchant(merchantId);
   const id = randomUUID();
   const invoice: Invoice = {
     ...draft, id, number: `VP-${id.slice(0, 8).toUpperCase()}`, status: "draft", version: 1,
     totalCents: totalCents(draft.lines), reference: null, merchant: null,
     signature: null, settlement: null, createdAt: new Date().toISOString(), paidAt: null,
+    merchantId: merchant.id, merchantName: merchant.name, merchantArea: merchant.area,
   };
   saveInvoice(invoice);
   return invoice;

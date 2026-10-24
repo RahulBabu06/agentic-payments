@@ -64,6 +64,11 @@ rpc.listen(0, "127.0.0.1", () => {
       ELEVENLABS_API_KEY: "",
       ELEVENLABS_AGENT_ID: "",
       MERCHANT_WALLET: Keypair.generate().publicKey.toBase58(),
+      MERCHANT_WALLET_BEAN_AND_BREW: Keypair.generate().publicKey.toBase58(),
+      MERCHANT_WALLET_LITTLE_OLIVE: Keypair.generate().publicKey.toBase58(),
+      MERCHANT_WALLET_CORNER_PIZZA: Keypair.generate().publicKey.toBase58(),
+      // Deliberately unset to exercise pending-wallet storefronts.
+      MERCHANT_WALLET_COPPER_TAP: "",
       SOLANA_RPC_URL: `http://127.0.0.1:${address.port}`,
       DATABASE_PATH: join(directory, "test.sqlite"),
       NEXT_BUILD_DIR: production ? ".next" : ".next-test",
