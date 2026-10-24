@@ -3,37 +3,94 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Assistant, api, Brand, errorText, TestBanner } from "@/components/shared";
-import { catalog } from "@/lib/catalog";
+import { getMerchant, merchants, searchMerchants } from "@/lib/merchants";
+import { cartLines, cartSchema, Cart } from "@/lib/catalog";
 import { money } from "@/lib/domain";
 import dynamic from "next/dynamic";
+import type { CustomerOrder } from "@/lib/customer-orders";
 
 const VoiceAgent = dynamic(() => import("@/components/voice-agent"), { ssr: false });
 
 export default function Storefront() {
   const router = useRouter();
+  const [merchantId, setMerchantId] = useState(merchants[0].id);
+  const [query, setQuery] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [customer, setCustomer] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
+  const [requestId, setRequestId] = useState("");
+  const [internalOrder, setInternalOrder] = useState<CustomerOrder | null>(null);
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [configured, setConfigured] = useState(true);
-  useEffect(() => { api("config").then(c => setConfigured(c.merchantConfigured)).catch(e => setError(errorText(e))); }, []);
-  const items = catalog.filter(p => quantities[p.id] > 0).map(p => ({ id: p.id, quantity: quantities[p.id] }));
-  const total = catalog.reduce((sum, p) => sum + p.unitCents * (quantities[p.id] || 0), 0);
-  return <div className="customer-shell"><header className="customer-header"><Brand /><Link className="inline-link" href="/">Business workspace ↗</Link></header><TestBanner /><main className="customer-main">
-    <p className="eyebrow">DEMO STUDIO / CUSTOMER CHECKOUT</p><h1>A little less checkout.<br />A little more conversation.</h1><p className="subtitle">Pick a service or ask Gemini to help. Pay from your own wallet.</p>
+  const [wallets, setWallets] = useState<Record<string, { paymentReady: boolean; paymentSetup: string }>>({});
+  useEffect(() => {
+    setRequestId(crypto.randomUUID());
+    api("customer/account").then(c => { if (!c.authenticated) router.replace("/customer"); else setAuthenticated(true); }).catch(e => setError(errorText(e)));
+    const selected = new URLSearchParams(window.location.search).get("store");
+    if (selected && merchants.some(store => store.id === selected)) setMerchantId(selected);
+    const review = new URLSearchParams(window.location.search).get("review");
+    if (review) api(`customer/orders/${review}`).then(({ order }) => {
+      setMerchantId(order.merchantId);
+      setQuantities(Object.fromEntries(order.cart.items.map((i: { id: string; quantity: number }) => [i.id, i.quantity])));
+      setInternalOrder(order);
+    }).catch(e => setError(errorText(e)));
+    api("merchants").then(c => setWallets(Object.fromEntries(c.merchants.map((store: any) => [store.id, store])))).catch(e => setError(errorText(e)));
+  }, [router]);
+  const store = getMerchant(merchantId);
+  const items = store.menu.filter(p => quantities[p.id] > 0).map(p => ({ id: p.id, quantity: quantities[p.id] }));
+  const current: Cart = { merchantId, items };
+  const total = cartLines(current).reduce((sum, line) => sum + line.unitCents * line.quantity, 0);
+  const configured = wallets[merchantId]?.paymentReady === true;
+  function resetReview() { setInternalOrder(null); setApproved(false); setRequestId(crypto.randomUUID()); }
+  function chooseStore(id: string) {
+    getMerchant(id);
+    setMerchantId(id); setQuantities({}); resetReview(); setError("");
+    window.history.replaceState(null, "", `/customer/shop?store=${id}`);
+  }
+  function applyOrder(input: unknown) {
+    if (busy) return;
+    try {
+      const order = cartSchema.parse(input);
+      cartLines(order);
+      setMerchantId(order.merchantId);
+      setQuantities(Object.fromEntries(order.items.map(item => [item.id, item.quantity])));
+      if (JSON.stringify(order) !== JSON.stringify(current)) resetReview();
+      setError("");
+      window.history.replaceState(null, "", `/customer/shop?store=${order.merchantId}`);
+    } catch { setError("The assistant returned an invalid cart. Please choose items from the menu."); }
+  }
+  function assistantResult(result: any) {
+    if (result.order) applyOrder(result.order);
+    if (result.internalOrder) setInternalOrder(result.internalOrder);
+  }
+  if (!authenticated) return <main className="customer-main"><p>Opening customer account…</p><Link href="/customer">Sign in to demo account</Link></main>;
+  return <div className="customer-shell"><header className="customer-header"><Brand /><Link className="inline-link" href="/customer">Alex Demo · Orders & receipts ↗</Link></header><TestBanner /><main className="customer-main">
+    <p className="eyebrow">FIVE LOCAL STORES / ONE CONVERSATION</p><h1>A little less checkout.<br />A little more conversation.</h1><p className="subtitle">Find a coffee shop, restaurant or bar. Tell us your order, then approve test USDC in your own wallet.</p>
+    <div className="notice merchant-disclosure">All five businesses are fictional. Merchant verification is simulated—not real KYC or KYB. No real orders, alcohol sales, or fulfilment.</div>
+    <section className="merchant-directory" aria-label="Find a demo store">
+      <label>Search stores<input type="search" placeholder="Try Maple, Soho, pizza or bar…" value={query} onChange={e => setQuery(e.target.value)} /></label>
+      <div className="merchant-grid">{searchMerchants(query).map(merchant => <button key={merchant.id} className={`card merchant-option ${merchant.id === merchantId ? "selected" : ""}`} disabled={busy} onClick={() => chooseStore(merchant.id)} aria-pressed={merchant.id === merchantId}>
+        <span className="eyebrow">{merchant.category} · {merchant.area}</span><strong>{merchant.name}</strong><span>{merchant.description}</span><small>Simulated verification · {wallets[merchant.id]?.paymentReady ? "Devnet payments ready" : "Wallet setup pending"}</small>
+      </button>)}</div>
+      {!searchMerchants(query).length && <p className="notice">No demo stores match. Try coffee, restaurant, bar, Soho or Maple.</p>}
+    </section>
     {error && <div className="notice error" role="alert">{error}</div>}
-    {!configured && <div className="notice">The business must configure its receiving wallet before checkout can open.</div>}
-    <div className="store-grid"><section><div className="catalog-grid">{catalog.map(p => <div className="card product-card" key={p.id}><span className="product-icon">{p.id === "demo" ? "◎" : p.id === "design" ? "✧" : p.id === "support" ? "⌘" : "↗"}</span><h3>{p.description}</h3><p>{p.detail}</p><div className="product-bottom"><strong>{money(p.unitCents)}</strong><label className="quantity-control">Qty<input aria-label={`${p.description} quantity`} type="number" min="0" max="100" step="1" value={quantities[p.id] || 0} onChange={e => { setQuantities({ ...quantities, [p.id]: Math.max(0, Math.min(100, Math.floor(Number(e.target.value)))) }); setApproved(false); }} /></label></div></div>)}</div>
-    <section className="card checkout-summary"><h2>Your order</h2>{items.length === 0 ? <p className="muted">Choose something above to get started.</p> : items.map(i => <div className="summary-row" key={i.id}><span>{i.quantity} × {catalog.find(p => p.id === i.id)!.description}</span><strong>{money(i.quantity * catalog.find(p => p.id === i.id)!.unitCents)}</strong></div>)}<div className="invoice-total"><span>Total · test USDC</span><strong>{money(total)}</strong></div>
-      <form onSubmit={async e => { e.preventDefault(); setBusy(true); setError(""); try { const { invoice } = await api("orders", "POST", { items, customer }); router.push(`/pay/${invoice.id}`); } catch (err) { setError(errorText(err)); setBusy(false); } }}>
-        <label>Your name or business<input value={customer} required maxLength={120} onChange={e => setCustomer(e.target.value)} placeholder="Who should the invoice be made out to?" /></label>
-        <label className="checkbox"><input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} /> I reviewed this order and its total. This is a devnet test.</label>
-        <button className="button dark full" disabled={busy || !approved || !items.length || !configured}>{busy ? "Preparing checkout…" : "Proceed to wallet payment →"}</button>
-      </form>
+    <div className="store-heading"><p className="eyebrow">SELECTED STORE · {store.category}</p><h2>{store.name}</h2><p className="muted">{store.area} · All menu prices in test USDC. No taxes or service charges added.</p></div>
+    {!configured && <div className="notice">{store.name}: {wallets[merchantId]?.paymentSetup || "Checking receiving wallet configuration…"} You can browse and draft an order, but checkout is unavailable.</div>}
+    <div className="store-grid"><section><fieldset disabled={busy}><div className="catalog-grid">{store.menu.map(p => <div className="card product-card" key={p.id}><span className="product-icon">◎</span><h3>{p.description}</h3><p>{p.detail}</p><div className="product-bottom"><strong>{(p.unitCents / 100).toFixed(2)} <small>USDC</small></strong><label className="quantity-control">Qty<input aria-label={`${p.description} quantity`} type="number" min="0" max="100" step="1" value={quantities[p.id] || 0} onChange={e => { setQuantities({ ...quantities, [p.id]: Math.max(0, Math.min(100, Math.floor(Number(e.target.value) || 0))) }); resetReview(); }} /></label></div></div>)}</div></fieldset>
+    <section className="card checkout-summary"><h2>Your order · {store.name}</h2>{items.length === 0 ? <p className="muted">Choose something above to get started.</p> : items.map(i => <div className="summary-row" key={i.id}><span>{i.quantity} × {store.menu.find(p => p.id === i.id)!.description}</span><strong>{money(i.quantity * store.menu.find(p => p.id === i.id)!.unitCents)}</strong></div>)}<div className="invoice-total"><span>Total · test USDC</span><strong>{(total / 100).toFixed(2)} USDC</strong></div>
+      <p>Ordering as Alex Demo. No payment is made until your wallet signs.</p>
+      {!internalOrder ? <button className="button dark full" disabled={busy || !items.length || !configured || !requestId} onClick={async () => { setBusy(true); setError(""); try { const { order } = await api("customer/orders", "POST", { merchantId, items, requestId }); setInternalOrder(order); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }}>Place order for confirmation →</button> : <div className="notice">
+        <h3>Confirm your internal order</h3><p className="small">Order {internalOrder.id}</p><p>{internalOrder.merchantName} · {internalOrder.lines.map(l => `${l.quantity} × ${l.description}`).join(", ")} · {(internalOrder.totalCents / 100).toFixed(2)} test USDC</p><div className="address-box"><span>Receiving wallet</span><code>{internalOrder.recipient}</code></div>
+        {internalOrder.invoiceId ? <Link className="button dark full" href={`/pay/${internalOrder.invoiceId}`}>Open wallet payment →</Link> : <>
+          <label className="checkbox"><input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} /> I confirm this store, order and total. This is a devnet test.</label>
+          <button className="button dark full" disabled={busy || !approved} onClick={async () => { setBusy(true); setError(""); try { const { order } = await api(`customer/orders/${internalOrder.id}/confirm`, "POST", { confirmed: true }); setInternalOrder(order); router.push(`/pay/${order.invoiceId}`); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }}>Confirm order & open wallet payment →</button>
+          <button className="text-button" disabled={busy} onClick={resetReview}>Discard review / request a fresh quote</button>
+        </>}
+      </div>}
     </section></section><div>
-      <VoiceAgent scope="order" disabled={busy} current={items.length ? { items } : undefined} onOrder={order => { setQuantities(Object.fromEntries(order.items.map(i => [i.id, i.quantity]))); setApproved(false); }} />
-      <Assistant endpoint="order-assistant" current={items.length ? { items } : undefined} title="Meet your order assistant" placeholder="What do you offer? Or: add one demo service…" onResult={r => { if (r.order && !busy) { setQuantities(Object.fromEntries(r.order.items.map((i: any) => [i.id, i.quantity]))); setApproved(false); } }} /><div className="trust-card"><span>◇</span><div><h3>Your wallet. Your approval.</h3><p>No seed phrases, no stored keys. You review every payment in Phantom before it is sent.</p></div></div>
+      <VoiceAgent scope="order" disabled={busy} current={current} requestId={requestId} pendingOrderId={internalOrder?.id} onResult={assistantResult} />
+      <Assistant key={merchantId} endpoint="order-assistant" current={current} requestId={requestId} pendingOrderId={internalOrder?.id} disabled={busy} title="Meet your order assistant" placeholder="Two black coffees and a latte from Maple Coffee in Oxford Circus…" onResult={assistantResult} /><div className="trust-card"><span>◇</span><div><h3>Your wallet. Your approval.</h3><p>No seed phrases, no stored keys. You review every payment in Phantom before it is sent. One store per checkout; changing stores clears your cart.</p></div></div>
     </div></div>
   </main></div>;
 }

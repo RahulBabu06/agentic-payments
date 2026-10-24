@@ -15,6 +15,13 @@ export async function authenticated() {
 export async function requireAuth() {
   if (!(await authenticated())) throw new Error("Unauthorized");
 }
+export async function customerAuthenticated() {
+  const token = (await cookies()).get("voicepay_customer")?.value;
+  return !!token && !!db().prepare("SELECT token FROM customer_sessions WHERE token=? AND expires>?").get(token, Date.now());
+}
+export async function requireCustomer() {
+  if (!(await customerAuthenticated())) throw new Error("Unauthorized");
+}
 export function sameOrigin(req: Request) {
   const origin = req.headers.get("origin");
   if (!origin || origin !== new URL(req.url).origin) throw new Error("Invalid request origin");

@@ -1,12 +1,17 @@
 # VoicePay
 
-A web-only, two-sided payment prototype: a business invoice workspace, customer service catalog, Gemini-assisted drafting and ordering, Phantom checkout, finalized Solana **devnet USDC** verification, and printable invoices/receipts.
+A web-only, two-sided ordering and payment prototype: one shared demo customer account, five fictional business accounts, customer-only Gemini/ElevenLabs ordering, Phantom checkout, finalized Solana **devnet USDC** verification, business receipt delivery and order preparation.
 
 **Test tokens only. No mainnet, custody, real-money settlement, or refunds.**
 
 Customer voice ordering and invoice help use ElevenLabs + Gemini. See
-[voice setup](docs/elevenlabs-agent.md). Voice only proposes orders and answers
-questions; wallet approval remains manual.
+[voice setup](docs/elevenlabs-agent.md). Voice can propose a cart, save an internal
+order and accept explicit order confirmation; wallet signing remains manual.
+Business dashboards do not have an AI agent.
+
+The five merchants have distinct menus and receiving-wallet settings.
+Verification is **simulated**, not real KYC/KYB. See the
+[merchant setup and explanation of the original implementation](docs/demo-merchants.md).
 
 ## Requirements
 
@@ -34,7 +39,7 @@ SOLANA_RPC_URL=https://api.devnet.solana.com
 
 - `GEMINI_API_KEY`: create at https://aistudio.google.com/api-keys.
 - `BUSINESS_PASSWORD`: choose a strong password for this demo workspace.
-- `MERCHANT_WALLET`: **public receiving wallet address only**. Never a private key or seed phrase.
+- `MERCHANT_WALLET`: Maple Coffee's **public receiving wallet address only**. Never a private key or seed phrase. Configure four more distinct addresses using the names in `.env.example` and [the merchant setup guide](docs/demo-merchants.md). Unconfigured stores remain browsable but cannot take payments.
 - `GEMINI_MODEL`: configurable because account availability varies. This implementation uses `@google/genai`'s `models.generateContent` with validated structured output, not the Interactions API.
 - The default is `gemini-3.1-flash-lite`, verified with this project's account. Google rejected the previous `gemini-2.5-flash` setting as unavailable to new users. If a different configured model returns 404, the app retries once with the tested default and displays a fallback notice. Key, permission, quota, and timeout failures are never retried across models. Updating `.env.example` does not overwrite `.env.local`; setting `GEMINI_MODEL=gemini-3.1-flash-lite` there avoids the initial unavailable-model request.
 - Custom RPC credentials remain server-side. The app checks the RPC genesis hash against devnet before payment operations.
@@ -54,14 +59,27 @@ An `export GEMINI_API_KEY=...` in a different terminal does not configure this p
 1. Set Phantom to Solana **devnet** and use dedicated test wallets. Do not fund these with real assets.
 2. Fund the **customer** with devnet SOL at https://faucet.solana.com/ and devnet USDC at https://faucet.circle.com/ (select Solana devnet). These are separate assets. Token-account creation can also cost test SOL.
 3. Configure the **merchant's public wallet address** in `.env.local`. The merchant does not sign incoming transfers or need to expose any keys to the app.
-4. Sign into `/` with `BUSINESS_PASSWORD`.
-5. Create a draft manually, or ask Gemini: “Create an invoice for Acme for 2 consultations at $1 each.”
-6. Review and save the draft, then explicitly approve and issue it.
-7. Open its checkout link `/pay/<id>`. QR codes link to this page, not directly to a Solana Pay transfer URI.
+4. Open `/customer` and enter the **Alex Demo** account. This is a deliberately
+   shared demo identity, without a customer password; do not store personal data.
+5. Open `/customer/shop`. Search a store, ask its menu, and build a cart by voice,
+   text or the menu controls. `/order` remains an alias requiring customer sign-in.
+6. Say “Place my order” or use **Place order for confirmation**. This persists an
+   internal order and a ten-minute quote. No payment request exists yet.
+7. Review store, items, price and recipient. Explicitly confirm by voice or the
+   checkbox/button. Confirmation creates one immutable payment request, at most
+   once on retries. Open its checkout `/pay/<id>`.
 8. Connect the **customer** Phantom wallet, review the recipient and amount, and approve the transaction.
 9. Wait for **finalized** settlement. Confirmation and finalization are not instantaneous; devnet/RPC performance varies.
-10. Check the business workspace for the matched payment and open “Invoice / receipt.” Use **Print / Save PDF** to download.
-11. Alternatively, visit `/order` to create a customer order from the fixed server-priced catalog. Gemini can propose catalog items; the customer reviews before proceeding.
+10. Open `/business`, sign in with `BUSINESS_PASSWORD` and select the receiving
+    business. The one password intentionally unlocks all five demo dashboards.
+    Only finalized matched orders appear. Click **Send receipt to customer account**.
+11. Click **Start preparing order**, then mark ready/collected. Return to `/customer`
+    to see order status and the receipt inbox. Open the receipt to Print / Save PDF.
+    Before the business sends it, the printable payment document is labeled
+    **Payment confirmation**, not a merchant receipt.
+
+Past-order personalization, preferences, real KYB and automatic/delegated wallet
+signing remain out of scope. Fulfilment is simulated.
 
 For phone testing, use a reachable HTTPS deployment/tunnel under your control. A QR pointing to `localhost` on a laptop cannot be opened from another phone. Do not publicly expose a development server or private RPC credentials.
 
@@ -80,7 +98,9 @@ For phone testing, use a reachable HTTPS deployment/tunnel under your control. A
 - Transactions are credited at most once. Under/overpayments and additional payments with the invoice reference appear in the exception list after verification.
 - The verifier processes transactions submitted through checkout or manually supplied for verification. It is **not** a background indexer of every incoming wallet transfer; unrelated/unreferenced deposits are not automatically discovered.
 - No automatic refund. Direct unsolicited transfers cannot be prevented.
-- Public checkout links are bearer capabilities: anyone with the URL can read its customer and invoice details. Share them only with the intended payer.
+- New customer-order checkout/document APIs require a customer or business session.
+  All demo customer sessions represent Alex Demo, not separate private users.
+  Legacy invoice links remain bearer capabilities; do not share sensitive data.
 - Gemini sees invoice data and user requests. Do not enter sensitive personal information in this prototype.
 
 ## Pending and failure behavior
@@ -93,7 +113,15 @@ For phone testing, use a reachable HTTPS deployment/tunnel under your control. A
 
 ## Storage and deployment
 
-SQLite lives in ignored `data/voicepay.sqlite`. Invoices, matching records and sessions survive process restarts. This is a **single-business, single-instance prototype**. Use a persistent disk; ephemeral serverless filesystems are unsuitable. Production requires stronger identity/access controls, a managed database, observability, background reconciliation, infrastructure-backed rate limiting, and operational/compliance review.
+SQLite lives in ignored `data/voicepay.sqlite`. Internal orders, invoices, receipts,
+fulfilment state, matching records and sessions survive process restarts.
+This is a **single-instance demo**, not production account isolation. The customer
+and business have separate session cookies. All five business dashboards share a
+demo administrator password; merchant-specific queries and action checks separate
+their orders. Receipt delivery is an in-app persisted timestamp, not email.
+Use a persistent disk; ephemeral serverless filesystems are unsuitable. Production
+requires real identity/access controls, a managed database, background reconciliation,
+infrastructure-backed rate limiting and operational/compliance review.
 
 Sessions use HTTP-only, SameSite cookies; production cookies require HTTPS. Mutation endpoints check request origin. Public AI requests have a small global rate limit to bound demo costs (not production abuse protection).
 
@@ -111,7 +139,13 @@ VOICEPAY_TEST_PRODUCTION=1 npm run test:browser
 
 Unit tests exercise integer money handling, input validation, payment identity, under/overpayment, failed execution, wrong recipients/mints, and merchant balance checks. They use synthetic transactions and are not evidence of a live wallet payment. Live Gemini and live devnet settlement must be tested separately with the configuration above.
 
-Browser tests run an isolated Next development server, temporary SQLite database, ephemeral signing wallet, and deterministic local RPC fixture. They cover invoice approval, signed checkout, matching, repeat verification, immutable issued invoices, receipt rendering, missing-key fallback, mobile layout, and access controls. They do not call Gemini or settle on live devnet. Development uses Webpack because the installed Next/Turbopack combination exhibited a repeated HMR hash-mismatch reload during browser testing.
+Browser tests run an isolated Next development server, temporary SQLite database,
+ephemeral signing wallet and deterministic local RPC fixture. They cover customer
+login, internal order review/confirmation, signed checkout, matching, distinct
+recipients, merchant dashboards, receipt delivery, processing transitions, missing-key
+fallback, mobile layout and access controls. They do not call Gemini or settle on
+live devnet. Development uses Webpack because the installed Next/Turbopack combination
+exhibited a repeated HMR hash-mismatch reload during browser testing.
 
 Voice tests cover consent, missing configuration, provider failures, microphone
 denial, and a real ElevenLabs SDK session against a simulated WebSocket service
@@ -124,9 +158,8 @@ The legacy Solana SDK dependency tree currently has npm audit advisories, includ
 
 ### Development console messages
 
-`GET /api/invoices 200` is successful background reconciliation polling, not an
-error. The dashboard polls every ten seconds while visible and authenticated,
-without overlapping polls or repeatedly requesting configuration.
+`GET /api/customer/orders 200` and `GET /api/business/<store>/orders 200`
+are successful background dashboard polling, not errors.
 `SQLite is an experimental feature` is a Node runtime warning. The optional
 legacy Solana bigint native binding warning means JavaScript arithmetic is
 used instead; token amounts are still checked with integer math. Solana token

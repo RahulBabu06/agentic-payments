@@ -3,33 +3,42 @@ import { Keypair, PublicKey, SendTransactionError, Transaction } from "@solana/w
 import { randomBytes, createHash } from "node:crypto";
 import bs58 from "bs58";
 import { z } from "zod";
-import { authenticated, body, equalSecret, failure, requireAuth, sameOrigin } from "@/lib/http";
+import { authenticated, customerAuthenticated, requireCustomer, body, equalSecret, failure, requireAuth, sameOrigin } from "@/lib/http";
 import { createInvoice, db, getInvoice, listInvoices, paymentRecords, rateLimit, saveInvoice } from "@/lib/db";
 import { atomicAmount, DEVNET_USDC, draftSchema, totalCents } from "@/lib/domain";
-import { draftWithGemini, invoiceHelp, orderSchema, orderWithGemini } from "@/lib/gemini";
-import { catalog } from "@/lib/catalog";
+import { invoiceHelp } from "@/lib/gemini";
+import { customerAssistant } from "@/lib/customer-assistant";
+import { DEMO_CUSTOMER, customerOrders, businessOrders, createCustomerOrder, confirmCustomerOrder, getCustomerOrder, orderForInvoice, orderView, businessOrderAction } from "@/lib/customer-orders";
+import { cartSchema, merchantIdSchema, orderSchema } from "@/lib/catalog";
+import { getMerchant, merchants, searchMerchants } from "@/lib/merchants";
+import { merchantWallet, merchantWalletStatus, publicMerchants } from "@/lib/merchant-wallets";
 import { voiceConfigured, voiceSession } from "@/lib/elevenlabs";
-import { orderVoiceReply, voiceContext, voiceTurn } from "@/lib/voice";
+import { voiceContext, voiceTurn } from "@/lib/voice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ path: string[] }> };
 const textSchema = z.string().trim().min(1).max(2000);
 const signatureSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,88}$/);
+async function checkoutAccess(id: string) {
+  if (orderForInvoice(id) && !(await customerAuthenticated()) && !(await authenticated())) throw new Error("Unauthorized");
+}
 const publicInvoice = (id: string) => {
   const invoice = getInvoice(id);
   if (!invoice || invoice.status === "draft") throw new Error("Invoice not found");
   return invoice;
 };
-async function merchantAddress() {
+async function merchantAddress(id: string) {
   const { devnetConnection } = await import("@/lib/solana");
-  if (!process.env.MERCHANT_WALLET) throw new Error("Set MERCHANT_WALLET to a devnet receiving wallet public address first.");
-  const address = new PublicKey(process.env.MERCHANT_WALLET);
-  if (!PublicKey.isOnCurve(address.toBytes())) throw new Error("Merchant must be a regular wallet address.");
+  const address = merchantWallet(id);
   await devnetConnection();
-  return address.toBase58();
+  return address;
 }
 function issue(invoice: NonNullable<ReturnType<typeof getInvoice>>, merchant: string) {
+  const store = getMerchant(invoice.merchantId || merchants[0].id);
+  invoice.merchantId = store.id;
+  invoice.merchantName = store.name;
+  invoice.merchantArea = store.area;
   invoice.merchant = merchant;
   invoice.reference = Keypair.generate().publicKey.toBase58();
   invoice.status = "issued";
@@ -40,22 +49,42 @@ function issue(invoice: NonNullable<ReturnType<typeof getInvoice>>, merchant: st
 export async function GET(req: Request, ctx: Context) {
   try {
     const path = (await ctx.params).path;
+    if (path.join("/") === "customer/account") return Response.json({ authenticated: await customerAuthenticated(), customer: DEMO_CUSTOMER });
+    if (path.join("/") === "customer/orders") {
+      await requireCustomer();
+      return Response.json({ orders: customerOrders() });
+    }
+    if (path[0] === "customer" && path[1] === "orders" && path[2]) {
+      await requireCustomer();
+      return Response.json({ order: orderView(getCustomerOrder(path[2])) });
+    }
+    if (path[0] === "business" && path[1] && path[2] === "orders") {
+      await requireAuth();
+      return Response.json({ orders: businessOrders(path[1]) });
+    }
     if (path[0] === "config") return Response.json({
       authenticated: await authenticated(),
       authConfigured: !!process.env.BUSINESS_PASSWORD,
       geminiConfigured: !!process.env.GEMINI_API_KEY,
       voiceConfigured: voiceConfigured(),
-      merchantConfigured: !!process.env.MERCHANT_WALLET,
-      network: "devnet", catalog,
+      merchantConfigured: merchantWalletStatus(merchants[0].id).ready,
+      network: "devnet", merchants: publicMerchants(),
     });
+    if (path.join("/") === "merchants") {
+      const matches = searchMerchants(new URL(req.url).searchParams.get("q") || "");
+      return Response.json({ merchants: publicMerchants().filter(store => matches.some(match => match.id === store.id)) });
+    }
     if (path[0] === "invoices") {
       await requireAuth();
       return Response.json({ invoices: listInvoices(), payments: paymentRecords() });
     }
-    if (path[0] === "checkout" && path[1]) return Response.json({
-      invoice: publicInvoice(path[1]),
-      pending: db().prepare("SELECT signature FROM submissions WHERE invoice_id=? AND status='pending'").all(path[1]),
-    });
+    if (path[0] === "checkout" && path[1]) {
+      await checkoutAccess(path[1]);
+      return Response.json({
+        invoice: publicInvoice(path[1]), order: orderForInvoice(path[1]),
+        pending: db().prepare("SELECT signature FROM submissions WHERE invoice_id=? AND status='pending'").all(path[1]),
+      });
+    }
     return Response.json({ error: "Not found" }, { status: 404 });
   } catch (error) { return failure(error); }
 }
@@ -65,18 +94,50 @@ export async function POST(req: Request, ctx: Context) {
     sameOrigin(req);
     const path = (await ctx.params).path;
     const input = await body(req);
+    if (path[0] === "checkout" && path[1]) await checkoutAccess(path[1]);
+    if (path.join("/") === "customer/session") {
+      rateLimit("customer-login", 60, 60000);
+      const token = randomBytes(32).toString("hex");
+      db().prepare("DELETE FROM customer_sessions WHERE expires<?").run(Date.now());
+      db().prepare("INSERT INTO customer_sessions VALUES (?,?)").run(token, Date.now() + 86400000);
+      (await cookies()).set("voicepay_customer", token, { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge: 86400, path: "/" });
+      return Response.json({ customer: DEMO_CUSTOMER });
+    }
+    if (path.join("/") === "customer/logout") {
+      const jar = await cookies();
+      db().prepare("DELETE FROM customer_sessions WHERE token=?").run(jar.get("voicepay_customer")?.value || "");
+      jar.delete("voicepay_customer");
+      return Response.json({ ok: true });
+    }
+    if (path.join("/") === "customer/orders") {
+      await requireCustomer();
+      rateLimit("orders", 30, 60000);
+      return Response.json({ order: orderView(createCustomerOrder(orderSchema.parse(input), z.string().uuid().parse(input.requestId))) });
+    }
+    if (path[0] === "customer" && path[1] === "orders" && path[2] && path[3] === "confirm") {
+      await requireCustomer();
+      z.literal(true).parse(input.confirmed);
+      const { devnetConnection } = await import("@/lib/solana");
+      await devnetConnection();
+      return Response.json({ order: orderView(confirmCustomerOrder(path[2])) });
+    }
+    if (path[0] === "business" && path[1] && path[2] === "orders" && path[3]) {
+      await requireAuth();
+      return Response.json({ order: businessOrderAction(path[1], path[3], z.enum(["send_receipt", "preparing", "ready", "collected"]).parse(input.action)) });
+    }
     if (path.join("/") === "voice/session") {
       rateLimit("voice-sessions", 5, 60000);
       const context = voiceContext.parse(input);
-      if (context.scope === "checkout") publicInvoice(context.invoiceId);
+      await requireCustomer();
+      if (context.scope === "checkout") { await checkoutAccess(context.invoiceId); publicInvoice(context.invoiceId); }
       return Response.json(await voiceSession(), { headers: { "Cache-Control": "no-store" } });
     }
     if (path.join("/") === "voice/turn") {
       rateLimit("public-ai", 15, 60000);
       const turn = voiceTurn.parse(input);
+      await requireCustomer();
       if (turn.context.scope === "order") {
-        const result = await orderWithGemini(turn.message, turn.current);
-        return Response.json({ ...result, say: result.order ? orderVoiceReply(result.order) : result.reply });
+        return Response.json(await customerAssistant(turn.message, turn.current, turn.requestId, turn.pendingOrderId));
       }
       const invoice = publicInvoice(turn.context.invoiceId);
       const result = await invoiceHelp(turn.message, invoice);
@@ -103,27 +164,20 @@ export async function POST(req: Request, ctx: Context) {
     }
     if (path[0] === "invoices") {
       await requireAuth();
-      return Response.json({ invoice: createInvoice(draftSchema.parse(input)) });
+      const merchantId = input.merchantId === undefined ? merchants[0].id : merchantIdSchema.parse(input.merchantId);
+      return Response.json({ invoice: createInvoice(draftSchema.parse(input), merchantId) });
     }
     if (path[0] === "assistant") {
-      await requireAuth();
-      rateLimit("business-ai", 20, 60000);
-      return Response.json(await draftWithGemini(textSchema.parse(input.message), input.current ? draftSchema.parse(input.current) : undefined));
+      return Response.json({ error: "AI ordering is available only in the customer account." }, { status: 410 });
     }
     if (path[0] === "order-assistant") {
+      await requireCustomer();
       rateLimit("public-ai", 15, 60000);
-      return Response.json(await orderWithGemini(textSchema.parse(input.message), input.current ? orderSchema.parse(input.current) : undefined));
+      return Response.json(await customerAssistant(textSchema.parse(input.message), input.current ? cartSchema.parse(input.current) : undefined,
+        z.string().uuid().optional().parse(input.requestId), z.string().uuid().optional().parse(input.pendingOrderId)));
     }
     if (path[0] === "orders") {
-      rateLimit("orders", 30, 60000);
-      const order = orderSchema.parse(input);
-      const customer = z.string().trim().min(1).max(120).parse(input.customer);
-      const merchant = await merchantAddress();
-      const lines = order.items.map(item => {
-        const product = catalog.find(p => p.id === item.id)!;
-        return { description: product.description, quantity: item.quantity, unitCents: product.unitCents };
-      });
-      return Response.json({ invoice: issue(createInvoice({ customer, dueDate: "", lines }), merchant) });
+      return Response.json({ error: "Use the customer account to place and confirm an internal order." }, { status: 410 });
     }
     if (path[0] === "checkout" && path[1] && path[2] === "assistant") {
       rateLimit("public-ai", 15, 60000);
@@ -234,14 +288,17 @@ export async function PATCH(req: Request, ctx: Context) {
     const input = await body(req);
     const expectedVersion = z.number().int().parse(input.version);
     // Perform network validation before entering the synchronous state transition.
-    const merchant = input.action === "issue" ? await merchantAddress() : null;
+    const before = getInvoice(path[1]);
+    if (!before) throw new Error("Invoice not found");
+    const merchant = input.action === "issue" ? await merchantAddress(before.merchantId || merchants[0].id) : null;
     const invoice = getInvoice(path[1]);
     if (!invoice) throw new Error("Invoice not found");
     if (invoice.version !== expectedVersion) throw new Error("Invoice changed. Refresh and review it again.");
     if (invoice.status !== "draft") throw new Error("Issued invoices are immutable. Create a new draft.");
     if (input.action === "issue" && merchant) return Response.json({ invoice: issue(invoice, merchant) });
     const draft = draftSchema.parse(input.draft);
-    Object.assign(invoice, draft, { totalCents: totalCents(draft.lines), version: invoice.version + 1 });
+    const store = getMerchant(input.merchantId === undefined ? invoice.merchantId || merchants[0].id : merchantIdSchema.parse(input.merchantId));
+    Object.assign(invoice, draft, { merchantId: store.id, merchantName: store.name, merchantArea: store.area, totalCents: totalCents(draft.lines), version: invoice.version + 1 });
     saveInvoice(invoice);
     return Response.json({ invoice });
   } catch (error) { return failure(error); }

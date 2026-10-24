@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { catalog } from "./catalog";
-import { orderSchema } from "./gemini";
+import { cartSchema, cartLines, Cart } from "./catalog";
+import { getMerchant } from "./merchants";
 
 export const voiceContext = z.discriminatedUnion("scope", [
   z.object({ scope: z.literal("order") }),
@@ -9,10 +9,15 @@ export const voiceContext = z.discriminatedUnion("scope", [
 export const voiceTurn = z.object({
   context: voiceContext,
   message: z.string().trim().min(1).max(2000),
-  current: orderSchema.optional(),
+  current: cartSchema.optional(),
+  requestId: z.string().uuid().optional(),
+  pendingOrderId: z.string().uuid().optional(),
 });
 
-export function orderVoiceReply(order: z.infer<typeof orderSchema>) {
-  const cents = order.items.reduce((sum, item) => sum + catalog.find(p => p.id === item.id)!.unitCents * item.quantity, 0);
-  return `Your draft order is ${order.items.map(i => `${i.quantity} ${catalog.find(p => p.id === i.id)!.description}`).join(", ")}. Total ${(cents / 100).toFixed(2)} test USDC. Review it on screen before proceeding. No payment has been made.`;
+export function orderVoiceReply(order: Cart) {
+  const merchant = getMerchant(order.merchantId);
+  const lines = cartLines(order);
+  if (!lines.length) return `The menu at ${merchant.name} in ${merchant.area} is: ${merchant.menu.map(item => `${item.description}, ${(item.unitCents / 100).toFixed(2)} test USDC`).join("; ")}. Merchant verification is simulated. What would you like to order?`;
+  const cents = lines.reduce((sum, line) => sum + line.unitCents * line.quantity, 0);
+  return `Your draft order at ${merchant.name}, ${merchant.area}, is ${lines.map(line => `${line.quantity} ${line.description}`).join(", ")}. Total ${(cents / 100).toFixed(2)} test USDC. Review it on screen before proceeding. No payment has been made.`;
 }

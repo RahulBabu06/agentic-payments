@@ -49,7 +49,7 @@ export default function Checkout({ params }: { params: Promise<{ id: string }> }
         const data = await api(`checkout/${id}/verify`, "POST", { signature });
         if (stopped) return;
         if (data.invoice) setInvoice(data.invoice);
-        setStatus(data.pending ? data.message : data.paid ? "Payment finalized. Your receipt is ready." : data.exception || "Payment needs review.");
+        setStatus(data.pending ? data.message : data.paid ? "Payment finalized. Check your account for the business receipt." : data.exception || "Payment needs review.");
         if (!data.pending) {
           localStorage.removeItem(`voicepay:${id}`);
           setSignature("");
@@ -116,16 +116,17 @@ export default function Checkout({ params }: { params: Promise<{ id: string }> }
   const paid = invoice?.status === "paid";
   return <div className="customer-shell"><header className="customer-header"><Brand /><span className="network-pill">◎ Secure wallet checkout</span></header><TestBanner />
     <main className="payment-main">
-      <div className="payment-title"><p className="eyebrow">DEMO STUDIO · PAYMENT REQUEST</p><h1>{paid ? "All settled." : "Your wallet. Your payment."}</h1><p className="subtitle">{paid ? "Matched on-chain. Recorded automatically." : "Review your invoice, then approve in your own wallet."}</p></div>
+      <div className="payment-title"><p className="eyebrow">{invoice?.merchantName || "VOICEPAY"} · PAYMENT REQUEST</p><h1>{paid ? "All settled." : "Your wallet. Your payment."}</h1><p className="subtitle">{paid ? "Matched on-chain. Recorded automatically." : "Review your invoice, then approve in your own wallet."}</p></div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {status && <div className="notice" role="status">{status}</div>}
       {!invoice ? <section className="card empty-state">{error ? "Unable to open this payment request." : "Loading payment request…"}</section> : <div className="payment-grid">
         <section className="card payment-card"><div className="section-heading"><span className="eyebrow">{invoice.number}</span><Badge status={invoice.status} /></div>
+          <div className="notice"><strong>Paying {invoice.merchantName || "Legacy Demo Studio"}</strong>{invoice.merchantArea && <span> · {invoice.merchantArea}</span>}<br />Fictional demo merchant · verification simulated · no real fulfilment.</div>
           <p className="muted">Billed to</p><h2>{invoice.customer}</h2>{invoice.dueDate && <p className="small muted">Due {invoice.dueDate}</p>}
           <div className="payment-lines">{invoice.lines.map((line, i) => <div className="summary-row" key={i}><div>{line.description}<small>{line.quantity} × {money(line.unitCents)}</small></div><strong>{money(line.quantity * line.unitCents)}</strong></div>)}</div>
           <div className="payment-amount"><span>Total payable</span><strong>{(invoice.totalCents / 100).toFixed(2)} <small>USDC</small></strong><span>Solana devnet · test tokens only</span></div>
           <div className="address-box"><span>Receiving wallet</span><code>{invoice.merchant}</code></div>
-          {paid ? <div className="paid-panel"><span className="success-icon">✓</span><h2>Payment finalized</h2><p>Your payment was verified and matched to this invoice.</p><Link className="button dark full" href={`/document/${id}`}>View receipt →</Link><a className="inline-link" href={`https://explorer.solana.com/tx/${invoice.signature}?cluster=devnet`} target="_blank" rel="noreferrer">View transaction on Solana ↗</a></div> : <>
+          {paid ? <div className="paid-panel"><span className="success-icon">✓</span><h2>Payment finalized</h2><p>Your payment was verified and matched to this invoice. The business sends your receipt to your VoicePay account.</p><Link className="button dark full" href="/customer">Orders & receipt inbox →</Link><Link className="inline-link" href={`/document/${id}`}>View payment document →</Link><a className="inline-link" href={`https://explorer.solana.com/tx/${invoice.signature}?cluster=devnet`} target="_blank" rel="noreferrer">View transaction on Solana ↗</a></div> : <>
             <div className="wallet-section"><h3>Pay with Phantom</h3><p>You need devnet USDC plus a little devnet SOL for network fees and, if needed, token-account creation.</p>
               {!address ? <button className="button secondary full" onClick={connect}>Connect Phantom wallet</button> : <div className="connected-wallet"><span className="live-dot" /> {address.slice(0, 6)}…{address.slice(-6)} <button className="text-button" disabled={busy || !!signature} onClick={async () => { await provider()?.disconnect(); setAddress(""); setReviewed(false); }}>Disconnect</button></div>}
               <label className="checkbox"><input type="checkbox" checked={reviewed} disabled={!!signature} onChange={e => setReviewed(e.target.checked)} /> I reviewed the recipient and amount. I understand these are devnet test tokens.</label>
