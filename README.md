@@ -15,7 +15,7 @@ Verification is **simulated**, not real KYC/KYB. See the
 
 ## Requirements
 
-- Node.js 22.13+ (tested with Node 24). Uses the built-in `node:sqlite` module.
+- Node.js 24 (selected by `.node-version` and `engines`). Uses the built-in `node:sqlite` module.
 - A Phantom wallet installed in the browser, or Phantom's mobile in-app browser.
 - Separate merchant and customer test wallets.
 - Gemini API key for assistant features. The manual forms work without Gemini.
@@ -112,6 +112,10 @@ For phone testing, use a reachable HTTPS deployment/tunnel under your control. A
 - Customer voice is user-started on `/order` and `/pay/<id>`, with explicit data consent, microphone controls and stop. Voice replies read fresh invoice state through the tool. Background voice notifications and business voice are not implemented.
 
 ## Storage and deployment
+
+For hosting both the website and API on one Render Node service, follow the
+[Render deployment guide](docs/render.md). Use Node 24 and a persistent disk;
+deploying this app as a static site does not support its API or database.
 
 SQLite lives in ignored `data/voicepay.sqlite`. Internal orders, invoices, receipts,
 fulfilment state, matching records and sessions survive process restarts.
