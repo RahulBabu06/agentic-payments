@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { db } from "./db";
 import { ServiceError } from "./errors";
+import { assertSameOrigin } from "./request-origin";
 
 export function equalSecret(a: string, b: string) {
   const hash = (v: string) => createHash("sha256").update(v).digest();
@@ -23,8 +24,7 @@ export async function requireCustomer() {
   if (!(await customerAuthenticated())) throw new Error("Unauthorized");
 }
 export function sameOrigin(req: Request) {
-  const origin = req.headers.get("origin");
-  if (!origin || origin !== new URL(req.url).origin) throw new Error("Invalid request origin");
+  assertSameOrigin(req);
 }
 export async function body(req: Request) {
   const text = await req.text();

@@ -55,6 +55,11 @@ Enter these in **Render → service → Environment**, never in committed files:
 - `MERCHANT_WALLET_COPPER_TAP`
 - `SOLANA_RPC_URL` — a Solana **devnet** endpoint.
 - `DATABASE_PATH=/var/data/voicepay.sqlite`
+- `APP_ORIGIN` — optional canonical HTTPS origin, e.g. `https://your-service.onrender.com`.
+  Render's `RENDER_EXTERNAL_URL` is used automatically when this is blank.
+  For a custom domain, set `APP_ORIGIN` to that domain's exact HTTPS origin
+  (no path). This lets same-origin POST requests pass behind Render's TLS proxy
+  without trusting arbitrary `X-Forwarded-Host` headers.
 
 Each configured store requires a distinct public wallet address. Blank store
 wallets disable checkout for those stores. Never supply private keys or seed
@@ -66,13 +71,15 @@ domains if restrictions are enabled. Keep agent authentication on.
 ## Deployment acceptance checks
 
 1. Check Render deployed the expected branch and latest commit.
-2. Open the HTTPS website, enter the customer demo, and browse the five stores.
+2. Open `/customer` on the HTTPS website. The shared demo session opens automatically;
+   no sign-in or account-dashboard click is needed before starting voice.
 3. Test Gemini text ordering, voice consent, microphone access, mute and stop.
 4. Save an order, review the recipient and total, and explicitly confirm it.
 5. Connect a dedicated customer Phantom wallet on devnet. Pay with test USDC
    and devnet SOL for fees, then wait for finalized settlement.
-6. Open the business dashboard, send the receipt, and progress the order.
-7. Check the customer receipt inbox and printable receipt.
+6. Open `/business`, sign in with the business password, send the receipt, and
+   progress the order. This dashboard does not use Gemini or ElevenLabs.
+7. Check `/customer/receipts` and the printable receipt.
 8. Redeploy and confirm that order/receipt data persists on the mounted disk.
 
 The app deliberately shares one customer identity and one administrator password.

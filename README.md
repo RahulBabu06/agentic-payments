@@ -59,12 +59,14 @@ An `export GEMINI_API_KEY=...` in a different terminal does not configure this p
 1. Set Phantom to Solana **devnet** and use dedicated test wallets. Do not fund these with real assets.
 2. Fund the **customer** with devnet SOL at https://faucet.solana.com/ and devnet USDC at https://faucet.circle.com/ (select Solana devnet). These are separate assets. Token-account creation can also cost test SOL.
 3. Configure the **merchant's public wallet address** in `.env.local`. The merchant does not sign incoming transfers or need to expose any keys to the app.
-4. Open `/customer` and enter the **Alex Demo** account. This is a deliberately
+4. Open `/customer` directly. It automatically opens the **Alex Demo** session and
+   voice ordering, with no account/sign-in screen. This remains a deliberately
    shared demo identity, without a customer password; do not store personal data.
-5. Open `/customer/shop`. Search a store, ask its menu, and build a cart by voice,
+5. Ask for a store's menu and build a cart by voice,
    or say the store and items directly. The default screen is a minimal voice orb,
    not a dashboard. Text and menu controls are tucked under **Can’t use voice?** as
-   an accessibility/offline-provider fallback. `/order` remains a sign-in-required alias.
+   an accessibility/offline-provider fallback. `/order` and `/customer/shop` remain
+   aliases. `/customer/receipts` holds past orders and receipts.
 6. Say “Place my order” or use **Place order for confirmation**. This persists an
    internal order and a ten-minute quote. No payment request exists yet.
 7. Review store, items, price and recipient. Explicitly confirm by voice or the
@@ -124,8 +126,9 @@ For phone testing, use a reachable HTTPS deployment/tunnel under your control. A
 - Saved orders open an accessible confirmation sheet at the top of the viewport.
   It shows the merchant, items and amount before proceeding to Phantom. Dismiss
   it to continue talking or changing the order; **Review …** reopens it.
-  Customer receipts are under **Past orders & receipts**. Existing business tools
-  remain at `/business` for fulfilment, but are not part of the default customer UI.
+  Customer receipts are one **Receipts** link away at `/customer/receipts`.
+  `/business` is a separate password-protected dashboard for totals, paid orders,
+  receipt delivery and fulfilment, with no Gemini or ElevenLabs integration.
 
 ## Storage and deployment
 

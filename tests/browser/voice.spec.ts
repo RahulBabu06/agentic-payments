@@ -149,7 +149,7 @@ test("real ElevenLabs SDK routes a fixture voice tool into cart preview without 
   }));
   await expect(page.getByRole("link", { name: "Open wallet payment" })).toBeVisible();
   // Voice cannot open or sign a wallet itself.
-  expect(new URL(page.url()).pathname).toBe("/customer/shop");
+  expect(new URL(page.url()).pathname).toBe("/customer");
   await page.getByRole("button", { name: "Close order confirmation" }).click();
   await voice.getByRole("button", { name: "Stop voice", exact: true }).click();
   await expect(voice.getByRole("button", { name: "Start voice conversation" })).toBeVisible();

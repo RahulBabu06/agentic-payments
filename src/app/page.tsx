@@ -7,6 +7,7 @@ export default function Home() {
       <p className="subtitle">Five fictional local businesses. One demo customer. Solana devnet USDC.</p>
       <p>Speak your order. Review one confirmation. Pay in Phantom.</p>
       <Link className="button dark" href="/customer">Enter customer demo →</Link>
+      <p><Link className="inline-link" href="/business">Business dashboard →</Link></p>
       <p className="notice">Demo only: merchant verification is simulated. Customer access is a shared demonstration account, not production authentication. No real orders or fulfilment.</p>
     </main></div>;
 }

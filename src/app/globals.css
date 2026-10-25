@@ -20,6 +20,11 @@
 .store-heading h2 { font-size: 26px; }
 .merchant-invoice-select { margin-bottom: 12px; }
 .merchant-invoice-select select { margin-top: 7px; }
+.business-main > .subtitle { margin-bottom: 24px; }
+.business-main > .card { padding: 24px; margin-bottom: 16px; }
+.business-main > form.card { max-width: 460px; }
+.business-main > form.card .button { margin-top: 16px; }
+.business-main .stats-grid { margin-top: 24px; }
 .voice-example { padding: 12px; border-radius: 8px; background: var(--paper); }
 .customer-main > .voice-agent { margin-top: 24px; }
 .voice-first-shell .customer-main { max-width: 760px; margin: auto; text-align: center; padding-top: 20px; }

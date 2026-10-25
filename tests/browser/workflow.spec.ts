@@ -2,11 +2,47 @@ import { expect, test } from "@playwright/test";
 import { Keypair, Transaction } from "@solana/web3.js";
 const headers = { Origin: "http://localhost:3100" };
 
+test("customer opens voice directly while business stays an AI-free protected dashboard", async ({ page }) => {
+  let sessions = 0;
+  const providerRequests: string[] = [];
+  page.on("request", request => {
+    if (request.url().endsWith("/api/customer/session")) sessions++;
+  });
+  await page.goto("/customer");
+  await expect(page.getByRole("heading", { name: "Just say the word." })).toBeVisible();
+  expect(sessions).toBe(1);
+  await expect(page.getByRole("region", { name: "Customer voice assistant" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enter demo customer account" })).toHaveCount(0);
+  expect((await page.request.get("/api/customer/orders")).status()).toBe(200);
+  expect((await page.request.get("/api/business/maple-coffee/orders")).status()).toBe(401);
+  await page.getByRole("link", { name: "Receipts", exact: false }).click();
+  await expect(page).toHaveURL(/\/customer\/receipts$/);
+  page.on("request", request => {
+    if (/\/api\/(voice\/|order-assistant|assistant)/.test(request.url())) providerRequests.push(request.url());
+  });
+  await page.goto("/business");
+  await expect(page.getByRole("heading", { name: "Business sign in", exact: true })).toBeVisible();
+  await page.getByLabel("Business password").fill("browser-test-only-not-a-real-credential");
+  await page.getByRole("button", { name: "Unlock business dashboards" }).click();
+  await expect(page.getByRole("heading", { name: "Maple Coffee dashboard" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Business overview" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Customer voice assistant" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Ask Gemini" })).toHaveCount(0);
+  expect(providerRequests).toEqual([]);
+});
+
+test("customer entry shows a retryable session error rather than a loading loop", async ({ page }) => {
+  await page.route("**/api/customer/session", route => route.fulfill({ status: 400, json: { error: "Invalid request origin" } }));
+  await page.goto("/customer");
+  await expect(page.getByRole("alert").filter({ hasText: "Invalid request origin" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry opening demo" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Customer voice assistant" })).toHaveCount(0);
+});
+
 test("customer orders, confirms, signs; business receives payment, sends receipt and processes", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("link", { name: "Enter customer demo" }).click();
-  await page.getByRole("button", { name: "Enter demo customer account" }).click();
-  await page.getByRole("link", { name: "Order food & drinks" }).click();
+  await expect(page.getByRole("heading", { name: "Just say the word." })).toBeVisible();
   await page.getByText("Can’t use voice? Order manually or type instead", { exact: true }).click();
   await page.getByLabel("Black coffee quantity").fill("2");
   await page.getByRole("button", { name: "Place order for confirmation" }).click();
@@ -53,8 +89,7 @@ test("customer orders, confirms, signs; business receives payment, sends receipt
   await expect(card).toContainText("Processing: ready");
   await page.getByLabel("Business account").selectOption("bean-and-brew");
   await expect(page.locator("section.card").filter({ hasText: saved.id })).toHaveCount(0);
-  await page.goto("/customer");
-  await page.getByText("Past orders & receipts", { exact: true }).click();
+  await page.goto("/customer/receipts");
   await expect(page.getByRole("heading", { name: "Receipt inbox" })).toBeVisible();
   await page.getByRole("link", { name: "Open merchant receipt" }).first().click();
   await expect(page.getByRole("heading", { name: "Payment receipt", exact: true })).toBeVisible();
@@ -73,8 +108,7 @@ test("customer menu remains usable without Gemini and persists internal review",
   await expect(page.getByRole("status")).toContainText("Gemini is not configured");
   await page.getByLabel("Latte quantity").fill("1");
   await page.getByRole("button", { name: "Place order for confirmation" }).click();
-  await page.goto("/customer");
-  await page.getByText("Past orders & receipts", { exact: true }).click();
+  await page.goto("/customer/receipts");
   await page.getByRole("link", { name: "Review internal order" }).first().click();
   await expect(page.getByRole("heading", { name: "Confirm your internal order" })).toBeVisible();
   await page.getByRole("button", { name: "Close order confirmation" }).click();
