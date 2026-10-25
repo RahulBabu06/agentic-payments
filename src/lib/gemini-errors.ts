@@ -4,9 +4,12 @@ import { ServiceError } from "./errors";
 export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 /** Inspect provider diagnostics, but return only fixed, credential-free messages. */
-export function geminiFailure(error: unknown): ServiceError {
+export function geminiFailure(error: unknown, surface: "invoice" | "order" = "invoice"): ServiceError {
+  const ordering = surface === "order";
   if (error instanceof z.ZodError || error instanceof SyntaxError) {
-    return new ServiceError("Gemini returned an incomplete or invalid draft. Please try again, or use the invoice form.", 502);
+    return new ServiceError(ordering
+      ? "Gemini returned an incomplete or invalid order. Please try again, or choose items from the menu."
+      : "Gemini returned an incomplete or invalid draft. Please try again, or use the invoice form.", 502);
   }
   const provider = error as { status?: unknown; message?: unknown; name?: unknown } | null;
   const status = typeof provider?.status === "number" ? provider.status : undefined;
@@ -24,10 +27,16 @@ export function geminiFailure(error: unknown): ServiceError {
     return new ServiceError("Gemini quota or rate limit reached. Check your Google AI Studio quota and billing, then try again later.", 429);
   }
   if (status === 504 || provider?.name === "AbortError" || provider?.name === "TimeoutError") {
-    return new ServiceError("Gemini took too long to respond. No invoice was issued. Please try again or use the form.", 504);
+    return new ServiceError(ordering
+      ? "Gemini took too long to respond. No order was placed. Please try again or use the menu."
+      : "Gemini took too long to respond. No invoice was issued. Please try again or use the form.", 504);
   }
   if (status === 400) {
-    return new ServiceError("Gemini could not accept the request configuration. Try again or use the form; the server integration may need updating.", 502);
+    return new ServiceError(ordering
+      ? "Gemini could not accept the request configuration. Try again or choose items from the menu; the server integration may need updating."
+      : "Gemini could not accept the request configuration. Try again or use the form; the server integration may need updating.", 502);
   }
-  return new ServiceError("Gemini is temporarily unavailable. No invoice was issued. Please try again or use the form.", 503);
+  return new ServiceError(ordering
+    ? "Gemini is temporarily unavailable. No order was placed. Please try again or use the menu."
+    : "Gemini is temporarily unavailable. No invoice was issued. Please try again or use the form.", 503);
 }

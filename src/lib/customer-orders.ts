@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Keypair } from "@solana/web3.js";
-import { cartLines, orderSchema, type Cart } from "./catalog";
+import { cartLines, orderSchema, sameCart, type Cart } from "./catalog";
 import { createInvoice, db, getInvoice, saveInvoice } from "./db";
 import { totalCents, type Draft } from "./domain";
 import { getMerchant } from "./merchants";
@@ -60,7 +60,7 @@ export function createCustomerOrder(input: Cart, requestId: string) {
   const previous = db().prepare("SELECT body FROM customer_orders WHERE customer_id=? AND request_id=?").get(DEMO_CUSTOMER.id, requestId) as { body: string } | undefined;
   if (previous) {
     const order: CustomerOrder = JSON.parse(previous.body);
-    if (JSON.stringify(order.cart) !== JSON.stringify(cart)) throw new Error("Order request changed. Review a new order.");
+    if (!sameCart(order.cart, cart)) throw new Error("Order request changed. Review a new order.");
     return order;
   }
   const store = getMerchant(cart.merchantId);

@@ -20,6 +20,10 @@ In the ElevenLabs dashboard, open **Agents**, create a conversational agent, and
 - Set the maximum conversation duration to **300 seconds** in the agent settings.
   The browser also stops at five minutes, but only the provider limit bounds an
   independently used signed URL.
+- Set turn eagerness to **Patient** and enable **background voice detection**.
+  Short room noise should not cut the agent off or start a turn. Leave
+  noisy-environment detection off, so a louder room does not make the agent
+  stop and ask the customer to move. Clear speech can still interrupt.
 - Restrict allowed domains to your demo origins where supported. Local testing
   uses `localhost`; deployed microphone access requires HTTPS.
 - Review recording, conversation retention, and privacy settings. The app does

@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { boundedTranscript } from "@/lib/assistant-transcript";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -48,7 +49,7 @@ export function Assistant({ endpoint, current, requestId, pendingOrderId, onResu
     setBusy(true);
     setModelNotice("");
     try {
-      const result = await api(endpoint, "POST", { message: [...history, `Customer: ${message}`].join("\n"), current, requestId, pendingOrderId });
+      const result = await api(endpoint, "POST", { message: boundedTranscript(history, message), current, requestId, pendingOrderId });
       if (!mounted.current) return;
       if (latest.current.disabled || before !== JSON.stringify(latest.current.current)) {
         setReply("Your selection changed while I was thinking. Please repeat your request for the current order.");

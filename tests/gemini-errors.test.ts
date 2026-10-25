@@ -37,6 +37,18 @@ test("JSON and schema failures report invalid output", () => {
   }
 });
 
+test("order failures point at the menu rather than invoice drafting", () => {
+  const invalid = geminiFailure(new SyntaxError("Invalid JSON"), "order");
+  assert.equal(invalid.status, 502);
+  assert.match(invalid.message, /invalid order/);
+  assert.match(invalid.message, /menu/);
+  assert.doesNotMatch(invalid.message, /invoice/);
+  assert.match(geminiFailure({ status: 504 }, "order").message, /No order was placed/);
+  assert.match(geminiFailure({ status: 503 }, "order").message, /No order was placed/);
+  assert.match(geminiFailure({ status: 400 }, "order").message, /menu/);
+  assert.match(geminiFailure({ status: 401 }, "order").message, /API key/);
+});
+
 test("provider messages and URLs never escape in public errors", () => {
   const detail = "private-diagnostic https://example.invalid/?key=test-secret";
   for (const status of [400, 401, 403, 404, 429, 500, 503, 504]) {

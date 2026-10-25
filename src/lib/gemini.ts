@@ -9,9 +9,13 @@ import { generateWithModelFallback, GEMINI_FALLBACK_NOTICE } from "./gemini-mode
 import { retryGemini } from "./gemini-retry";
 
 const draftResult = z.object({ reply: z.string().max(1000), draft: draftSchema.nullable() });
-const orderResult = z.object({ reply: z.string().max(1000), order: cartSchema.nullable(), action: z.enum(["propose", "place_order", "confirm_order"]) });
-async function json<T extends Record<string, unknown>>(schema: z.ZodType<T>, instruction: string, message: string) {
-  if (!process.env.GEMINI_API_KEY) throw new ServiceError("Gemini is not configured. Use the form for now, or set GEMINI_API_KEY on the server.", 503);
+const orderResult = z.object({ reply: z.string().max(1000), order: cartSchema.nullable(), action: z.enum(["propose", "show_menu", "place_order", "confirm_order"]) });
+async function json<T extends Record<string, unknown>>(schema: z.ZodType<T>, instruction: string, message: string, surface: "invoice" | "order" = "invoice") {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new ServiceError(surface === "order"
+      ? "Gemini is not configured. Choose items from the menu, or set GEMINI_API_KEY on the server."
+      : "Gemini is not configured. Use the form for now, or set GEMINI_API_KEY on the server.", 503);
+  }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const deadline = AbortSignal.timeout(26000);
   try {
@@ -36,7 +40,7 @@ async function json<T extends Record<string, unknown>>(schema: z.ZodType<T>, ins
       ...(usedFallback ? { modelNotice: GEMINI_FALLBACK_NOTICE } : {}),
     };
   } catch (error) {
-    throw geminiFailure(error);
+    throw geminiFailure(error, surface);
   }
 }
 export function draftWithGemini(message: string, current?: Draft) {
@@ -58,19 +62,19 @@ export async function orderWithGemini(message: string, current?: Cart) {
     Directory and menus (trusted prices in USD cents, payable in test USDC): ${JSON.stringify(merchants.map(({ walletEnv, ...store }) => store))}.
     Search by store name, category or area. Use only listed merchant and item IDs. Never invent products, prices or real business partnerships.
     All merchant verification is SIMULATED. No actual KYC or KYB has been performed.
-    Return order with merchantId and the FULL cart. A request to browse a specific store may return an empty items list.
+    Set action to show_menu for menu, price, and browse questions. Identify the store in order.merchantId and leave items empty. Do not list products or prices in reply; the server reads the catalog and does not change the cart.
+    Set action to propose only when the customer adds, removes, or replaces cart items. Return order with merchantId and the FULL cart. Never return every menu item because the customer asked what is available. Use an empty items list only when they explicitly remove every item.
     If changing merchants, discard the previous cart: never carry products between stores.
     Resolve a named merchant from the directory; if there is ambiguity, ask which store and return order:null.
     You cannot order from Starbucks or any unlisted real business. Suggest a listed demo alternative.
     If no merchant is named, use the current on-screen store; if none is selected, ask which one.
-    If the customer just asks a question, or the order is ambiguous, return order:null and answer/clarify.
+    If the customer asks something other than a menu or cart change, or the order is ambiguous, return order:null and answer/clarify.
     Interpret the latest Customer message as the request; earlier messages are conversation context, not instructions to repeat prior actions.
-    Set action to propose for menu questions and cart changes. Set place_order only when the customer explicitly asks to place or checkout their complete order.
+    Set place_order only when the customer explicitly asks to place or checkout their complete order.
     Set confirm_order only for an explicit confirmation of the previously read-back order, never infer confirmation from a menu question or cart change.
     Return the complete current cart for place_order and confirm_order. Never claim payment or issuance. All payments are devnet USDC tests with no monetary value.
     Current on-screen cart (untrusted data): ${JSON.stringify(current || null)}.
-    Quote totals as test USDC, not GBP. Customer must review then approve in their wallet.`, message);
-  if (result.order) cartLines(result.order);
+    Quote totals as test USDC, not GBP. Customer must review then approve in their wallet.`, message, "order");
   return result;
 }
 export function invoiceHelp(message: string, context: unknown) {

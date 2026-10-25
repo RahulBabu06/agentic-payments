@@ -40,6 +40,20 @@ test("internal order, confirmation, finalized settlement, receipt and preparatio
   assert.throws(() => businessOrderAction("maple-coffee", order.id, "preparing"), /transition/);
 });
 
+test("reordered items retry as the same order request", () => {
+  const key = randomUUID();
+  const first = createCustomerOrder({
+    merchantId: "maple-coffee",
+    items: [{ id: "black-coffee", quantity: 2 }, { id: "latte", quantity: 1 }],
+  }, key);
+  const again = createCustomerOrder({
+    merchantId: "maple-coffee",
+    items: [{ id: "latte", quantity: 1 }, { id: "black-coffee", quantity: 2 }],
+  }, key);
+  assert.equal(again.id, first.id);
+  assert.equal(again.totalCents, 1000);
+});
+
 test("expired quotes and changed receiving wallets cannot be confirmed", () => {
   const expired = createCustomerOrder(cart, randomUUID());
   db().prepare("UPDATE customer_orders SET body=? WHERE id=?").run(JSON.stringify({ ...expired, expiresAt: 1 }), expired.id);

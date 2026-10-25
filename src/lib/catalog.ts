@@ -11,6 +11,14 @@ export const cartSchema = z.object({ merchantId: merchantIdSchema, items: itemsS
 export const orderSchema = cartSchema.refine(order => order.items.length > 0, "Choose at least one menu item.");
 export type Cart = z.infer<typeof cartSchema>;
 
+// Item order and object key order are not part of the cart. Gemini often echoes
+// the same items in a different order than the menu-backed on-screen cart.
+export function sameCart(a: Cart, b: Cart) {
+  if (a.merchantId !== b.merchantId || a.items.length !== b.items.length) return false;
+  const quantities = new Map(a.items.map(item => [item.id, item.quantity]));
+  return b.items.every(item => quantities.get(item.id) === item.quantity);
+}
+
 // Resolve prices and membership server-side; never accept client or model prices.
 export function cartLines(input: Cart) {
   const cart = cartSchema.parse(input);

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Assistant, api, Brand, errorText, TestBanner } from "@/components/shared";
 import { getMerchant, merchants, searchMerchants } from "@/lib/merchants";
-import { cartLines, cartSchema, Cart } from "@/lib/catalog";
+import { cartLines, cartSchema, sameCart, Cart } from "@/lib/catalog";
 import { money } from "@/lib/domain";
 import dynamic from "next/dynamic";
 import type { CustomerOrder } from "@/lib/customer-orders";
@@ -75,12 +75,14 @@ export default function Storefront() {
       cartLines(order);
       setMerchantId(order.merchantId);
       setQuantities(Object.fromEntries(order.items.map(item => [item.id, item.quantity])));
-      if (JSON.stringify(order) !== JSON.stringify(current)) resetReview();
+      if (!sameCart(order, current)) resetReview();
       setError("");
       window.history.replaceState(null, "", `/customer?store=${order.merchantId}`);
     } catch { setError("The assistant returned an invalid cart. Please choose items from the menu."); }
   }
   function assistantResult(result: any) {
+    // Menu retrieval is spoken from the catalog and must not replace the cart.
+    if (result.action === "show_menu") return;
     if (result.order) applyOrder(result.order);
     if (result.internalOrder) { setInternalOrder(result.internalOrder); setShowConfirmation(true); }
   }
