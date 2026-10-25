@@ -13,6 +13,7 @@ test.beforeEach(async ({ page, request }) => {
 
 test("five stores are searchable, store changes clear the cart and missing wallets block orders", async ({ page }) => {
   await page.goto("/customer/shop");
+  await page.getByText("Can’t use voice? Order manually or type instead", { exact: true }).click();
   const directory = page.getByRole("region", { name: "Find a demo store" });
   await expect(directory.getByRole("button")).toHaveCount(5);
   await page.getByLabel("Black coffee quantity").fill("2");
@@ -26,6 +27,7 @@ test("five stores are searchable, store changes clear the cart and missing walle
   await expect(page.getByRole("button", { name: "Place order for confirmation" })).toBeDisabled();
   await expect(page.getByText("Copper Tap: Receiving wallet not configured.", { exact: false })).toBeVisible();
   await page.reload();
+  await page.getByText("Can’t use voice? Order manually or type instead", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your order · Copper Tap" })).toBeVisible();
 });
 
@@ -90,6 +92,7 @@ test("late assistant results cannot overwrite a manually selected store", async 
     await route.fulfill({ json: { action: "propose", reply: "Old coffee order", order: { merchantId: "maple-coffee", items: [{ id: "latte", quantity: 2 }] } } });
   });
   await page.goto("/customer/shop");
+  await page.getByText("Can’t use voice? Order manually or type instead", { exact: true }).click();
   await page.getByRole("textbox", { name: "Ask Gemini" }).fill("Two lattes");
   await page.getByRole("button", { name: "Ask Gemini" }).click();
   await expect.poll(() => started).toBe(true);

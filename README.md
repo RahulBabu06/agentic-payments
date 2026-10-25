@@ -62,13 +62,18 @@ An `export GEMINI_API_KEY=...` in a different terminal does not configure this p
 4. Open `/customer` and enter the **Alex Demo** account. This is a deliberately
    shared demo identity, without a customer password; do not store personal data.
 5. Open `/customer/shop`. Search a store, ask its menu, and build a cart by voice,
-   text or the menu controls. `/order` remains an alias requiring customer sign-in.
+   or say the store and items directly. The default screen is a minimal voice orb,
+   not a dashboard. Text and menu controls are tucked under **Can’t use voice?** as
+   an accessibility/offline-provider fallback. `/order` remains a sign-in-required alias.
 6. Say “Place my order” or use **Place order for confirmation**. This persists an
    internal order and a ten-minute quote. No payment request exists yet.
 7. Review store, items, price and recipient. Explicitly confirm by voice or the
-   checkbox/button. Confirmation creates one immutable payment request, at most
+   **Confirm order & open wallet payment** button—no extra checkbox. Confirmation creates one immutable payment request, at most
    once on retries. Open its checkout `/pay/<id>`.
-8. Connect the **customer** Phantom wallet, review the recipient and amount, and approve the transaction.
+8. Review the recipient and amount, then tap **Pay … test USDC**. This connects the
+   **customer** Phantom wallet and requests a signature in one app action; wallet
+   connection/signature approval is still required in Phantom. On phones, open
+   VoicePay in Phantom’s in-app browser and enter the demo account there.
 9. Wait for **finalized** settlement. Confirmation and finalization are not instantaneous; devnet/RPC performance varies.
 10. Open `/business`, sign in with `BUSINESS_PASSWORD` and select the receiving
     business. The one password intentionally unlocks all five demo dashboards.
@@ -109,7 +114,18 @@ For phone testing, use a reachable HTTPS deployment/tunnel under your control. A
 - A definite preflight rejection permits correcting test balances and retrying.
 - Transport uncertainty retains the signature and blocks another checkout payment while pending. Reloading retrieves pending signatures from the server.
 - If a payment never lands (for example, an expired blockhash after an ambiguous send), verification may remain pending. **Do not pay again blindly.** Inspect the devnet explorer/RPC and resolve the record manually after establishing the transaction did not settle. Automatic expiry reconciliation is not yet implemented.
-- Customer voice is user-started on `/order` and `/pay/<id>`, with explicit data consent, microphone controls and stop. Voice replies read fresh invoice state through the tool. Background voice notifications and business voice are not implemented.
+- Customer voice is user-started with one **Start voice conversation** tap on `/order` and `/pay/<id>`. The button accepts the visible audio/data disclosure; microphone permission is still required. Mute and stop remain available. Voice replies read fresh invoice state through the tool. Background voice notifications and business voice are not implemented.
+- The voice orb has distinct connecting, listening, speaking, muted and error states.
+  Motion reflects SDK conversation state, not a measured microphone waveform.
+  **Gentle vibration** is opt-in for the browser tab, with short pulses on voice
+  transitions and an order-ready pattern. Vibration requires browser/device support;
+  Safari/iOS does not support the Web Vibration API. Reduced-motion preferences
+  disable the animation and haptics.
+- Saved orders open an accessible confirmation sheet at the top of the viewport.
+  It shows the merchant, items and amount before proceeding to Phantom. Dismiss
+  it to continue talking or changing the order; **Review …** reopens it.
+  Customer receipts are under **Past orders & receipts**. Existing business tools
+  remain at `/business` for fulfilment, but are not part of the default customer UI.
 
 ## Storage and deployment
 
@@ -154,7 +170,8 @@ exhibited a repeated HMR hash-mismatch reload during browser testing.
 Voice tests cover consent, missing configuration, provider failures, microphone
 denial, and a real ElevenLabs SDK session against a simulated WebSocket service
 with silent synthetic microphone streams. They exercise tool-to-cart updates,
-approval reset, mute/unmute, stop and audio-track cleanup. They do not establish
+confirmation-sheet placement/focus/dismissal, optional haptic patterns, reduced
+motion, mute/unmute, stop and audio-track cleanup. They do not establish
 live speech recognition or spoken audio quality. The optional production test
 mode runs the same isolated suite with `next start` against `.next`.
 

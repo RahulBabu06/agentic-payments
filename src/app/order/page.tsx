@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Assistant, api, Brand, errorText, TestBanner } from "@/components/shared";
@@ -8,6 +8,7 @@ import { cartLines, cartSchema, Cart } from "@/lib/catalog";
 import { money } from "@/lib/domain";
 import dynamic from "next/dynamic";
 import type { CustomerOrder } from "@/lib/customer-orders";
+import OrderConfirmation from "@/components/order-confirmation";
 
 const VoiceAgent = dynamic(() => import("@/components/voice-agent"), { ssr: false });
 
@@ -19,9 +20,10 @@ export default function Storefront() {
   const [authenticated, setAuthenticated] = useState(false);
   const [requestId, setRequestId] = useState("");
   const [internalOrder, setInternalOrder] = useState<CustomerOrder | null>(null);
-  const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const confirming = useRef(false);
   const [wallets, setWallets] = useState<Record<string, { paymentReady: boolean; paymentSetup: string }>>({});
   useEffect(() => {
     setRequestId(crypto.randomUUID());
@@ -33,6 +35,7 @@ export default function Storefront() {
       setMerchantId(order.merchantId);
       setQuantities(Object.fromEntries(order.cart.items.map((i: { id: string; quantity: number }) => [i.id, i.quantity])));
       setInternalOrder(order);
+      setShowConfirmation(true);
     }).catch(e => setError(errorText(e)));
     api("merchants").then(c => setWallets(Object.fromEntries(c.merchants.map((store: any) => [store.id, store])))).catch(e => setError(errorText(e)));
   }, [router]);
@@ -41,7 +44,7 @@ export default function Storefront() {
   const current: Cart = { merchantId, items };
   const total = cartLines(current).reduce((sum, line) => sum + line.unitCents * line.quantity, 0);
   const configured = wallets[merchantId]?.paymentReady === true;
-  function resetReview() { setInternalOrder(null); setApproved(false); setRequestId(crypto.randomUUID()); }
+  function resetReview() { setInternalOrder(null); setShowConfirmation(false); setRequestId(crypto.randomUUID()); }
   function chooseStore(id: string) {
     getMerchant(id);
     setMerchantId(id); setQuantities({}); resetReview(); setError("");
@@ -61,12 +64,27 @@ export default function Storefront() {
   }
   function assistantResult(result: any) {
     if (result.order) applyOrder(result.order);
-    if (result.internalOrder) setInternalOrder(result.internalOrder);
+    if (result.internalOrder) { setInternalOrder(result.internalOrder); setShowConfirmation(true); }
+  }
+  async function confirmOrder() {
+    if (!internalOrder || confirming.current) return;
+    confirming.current = true;
+    setBusy(true); setError("");
+    try {
+      const { order } = await api(`customer/orders/${internalOrder.id}/confirm`, "POST", { confirmed: true });
+      setInternalOrder(order);
+      router.push(`/pay/${order.invoiceId}`);
+    } catch (err) { setError(errorText(err)); }
+    finally { confirming.current = false; setBusy(false); }
   }
   if (!authenticated) return <main className="customer-main"><p>Opening customer account…</p><Link href="/customer">Sign in to demo account</Link></main>;
-  return <div className="customer-shell"><header className="customer-header"><Brand /><Link className="inline-link" href="/customer">Alex Demo · Orders & receipts ↗</Link></header><TestBanner /><main className="customer-main">
-    <p className="eyebrow">FIVE LOCAL STORES / ONE CONVERSATION</p><h1>A little less checkout.<br />A little more conversation.</h1><p className="subtitle">Find a coffee shop, restaurant or bar. Tell us your order, then approve test USDC in your own wallet.</p>
-    <div className="notice merchant-disclosure">All five businesses are fictional. Merchant verification is simulated—not real KYC or KYB. No real orders, alcohol sales, or fulfilment.</div>
+  return <div className="customer-shell voice-first-shell"><header className="customer-header"><Brand /><Link className="inline-link" href="/customer">Receipts ↗</Link></header><TestBanner /><main className="customer-main">
+    <h1>Just say the word.</h1><p className="subtitle">Order with your voice. Approve with your wallet.</p>
+    <VoiceAgent scope="order" disabled={busy} current={current} requestId={requestId} pendingOrderId={internalOrder?.id} onResult={assistantResult} />
+    {internalOrder && <button className="button secondary full" onClick={() => setShowConfirmation(true)}>Review {internalOrder.merchantName} · {(internalOrder.totalCents / 100).toFixed(2)} test USDC</button>}
+    {internalOrder && showConfirmation && <OrderConfirmation order={internalOrder} busy={busy} error={error} onConfirm={confirmOrder} onDismiss={() => { if (!busy) setShowConfirmation(false); }} />}
+    <p className="small muted">Five fictional stores. Shared Alex Demo account. No real orders or fulfilment. Merchant verification is simulated.</p>
+    <details className="manual-fallback"><summary>Can’t use voice? Order manually or type instead</summary>
     <section className="merchant-directory" aria-label="Find a demo store">
       <label>Search stores<input type="search" placeholder="Try Maple, Soho, pizza or bar…" value={query} onChange={e => setQuery(e.target.value)} /></label>
       <div className="merchant-grid">{searchMerchants(query).map(merchant => <button key={merchant.id} className={`card merchant-option ${merchant.id === merchantId ? "selected" : ""}`} disabled={busy} onClick={() => chooseStore(merchant.id)} aria-pressed={merchant.id === merchantId}>
@@ -80,17 +98,10 @@ export default function Storefront() {
     <div className="store-grid"><section><fieldset disabled={busy}><div className="catalog-grid">{store.menu.map(p => <div className="card product-card" key={p.id}><span className="product-icon">◎</span><h3>{p.description}</h3><p>{p.detail}</p><div className="product-bottom"><strong>{(p.unitCents / 100).toFixed(2)} <small>USDC</small></strong><label className="quantity-control">Qty<input aria-label={`${p.description} quantity`} type="number" min="0" max="100" step="1" value={quantities[p.id] || 0} onChange={e => { setQuantities({ ...quantities, [p.id]: Math.max(0, Math.min(100, Math.floor(Number(e.target.value) || 0))) }); resetReview(); }} /></label></div></div>)}</div></fieldset>
     <section className="card checkout-summary"><h2>Your order · {store.name}</h2>{items.length === 0 ? <p className="muted">Choose something above to get started.</p> : items.map(i => <div className="summary-row" key={i.id}><span>{i.quantity} × {store.menu.find(p => p.id === i.id)!.description}</span><strong>{money(i.quantity * store.menu.find(p => p.id === i.id)!.unitCents)}</strong></div>)}<div className="invoice-total"><span>Total · test USDC</span><strong>{(total / 100).toFixed(2)} USDC</strong></div>
       <p>Ordering as Alex Demo. No payment is made until your wallet signs.</p>
-      {!internalOrder ? <button className="button dark full" disabled={busy || !items.length || !configured || !requestId} onClick={async () => { setBusy(true); setError(""); try { const { order } = await api("customer/orders", "POST", { merchantId, items, requestId }); setInternalOrder(order); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }}>Place order for confirmation →</button> : <div className="notice">
-        <h3>Confirm your internal order</h3><p className="small">Order {internalOrder.id}</p><p>{internalOrder.merchantName} · {internalOrder.lines.map(l => `${l.quantity} × ${l.description}`).join(", ")} · {(internalOrder.totalCents / 100).toFixed(2)} test USDC</p><div className="address-box"><span>Receiving wallet</span><code>{internalOrder.recipient}</code></div>
-        {internalOrder.invoiceId ? <Link className="button dark full" href={`/pay/${internalOrder.invoiceId}`}>Open wallet payment →</Link> : <>
-          <label className="checkbox"><input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} /> I confirm this store, order and total. This is a devnet test.</label>
-          <button className="button dark full" disabled={busy || !approved} onClick={async () => { setBusy(true); setError(""); try { const { order } = await api(`customer/orders/${internalOrder.id}/confirm`, "POST", { confirmed: true }); setInternalOrder(order); router.push(`/pay/${order.invoiceId}`); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }}>Confirm order & open wallet payment →</button>
-          <button className="text-button" disabled={busy} onClick={resetReview}>Discard review / request a fresh quote</button>
-        </>}
-      </div>}
+      {!internalOrder ? <button className="button dark full" disabled={busy || !items.length || !configured || !requestId} onClick={async () => { setBusy(true); setError(""); try { const { order } = await api("customer/orders", "POST", { merchantId, items, requestId }); setInternalOrder(order); setShowConfirmation(true); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }}>Place order for confirmation →</button> : <button className="text-button" disabled={busy} onClick={resetReview}>Discard review / request a fresh quote</button>}
     </section></section><div>
-      <VoiceAgent scope="order" disabled={busy} current={current} requestId={requestId} pendingOrderId={internalOrder?.id} onResult={assistantResult} />
       <Assistant key={merchantId} endpoint="order-assistant" current={current} requestId={requestId} pendingOrderId={internalOrder?.id} disabled={busy} title="Meet your order assistant" placeholder="Two black coffees and a latte from Maple Coffee in Oxford Circus…" onResult={assistantResult} /><div className="trust-card"><span>◇</span><div><h3>Your wallet. Your approval.</h3><p>No seed phrases, no stored keys. You review every payment in Phantom before it is sent. One store per checkout; changing stores clears your cart.</p></div></div>
     </div></div>
+    </details>
   </main></div>;
 }

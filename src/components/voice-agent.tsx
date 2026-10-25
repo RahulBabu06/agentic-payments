@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { api, errorText } from "./shared";
 import type { Cart } from "@/lib/catalog";
+import { cancelHaptics, hapticsEnabled, pulseHaptics, setHaptics } from "@/lib/haptics";
 
 type Props = {
   scope: "order" | "checkout";
@@ -23,10 +24,11 @@ export default function VoiceAgent(props: Props) {
 
 function VoiceSession(props: Props) {
   const [configured, setConfigured] = useState(false);
-  const [consent, setConsent] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const [messages, setMessages] = useState<{ role: string; text: string }[]>([]);
+  const [canVibrate, setCanVibrate] = useState(false);
+  const [vibration, setVibration] = useState(false);
   const latest = useRef(props);
   latest.current = props;
   const generation = useRef(0);
@@ -44,10 +46,19 @@ function VoiceSession(props: Props) {
     },
   });
   const { endSession, status } = conversation;
+  useEffect(() => {
+    setCanVibrate(typeof navigator.vibrate === "function");
+    setVibration(hapticsEnabled());
+    return cancelHaptics;
+  }, []);
+  useEffect(() => {
+    if (status === "connected" && !conversation.isMuted) pulseHaptics(conversation.isSpeaking ? 12 : 20);
+  }, [status, conversation.isMuted, conversation.isSpeaking]);
   function stop() {
     active.current = false;
     generation.current++;
     setStarting(false);
+    cancelHaptics();
     endSession();
   }
   useEffect(() => {
@@ -79,6 +90,7 @@ function VoiceSession(props: Props) {
     if (active.current || props.disabled) return;
     const run = ++generation.current;
     active.current = true;
+    pulseHaptics();
     setStarting(true); setError(""); setMessages([]);
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error("Voice needs HTTPS or localhost and a browser with microphone support.");
@@ -114,17 +126,21 @@ function VoiceSession(props: Props) {
   }
   const connected = status === "connected";
   const engaged = starting || status === "connecting" || connected;
-  return <section className="card voice-agent" aria-label="Customer voice assistant">
+  const phase = error ? "error" : starting || status === "connecting" ? "connecting" : connected ? conversation.isMuted ? "muted" : conversation.isSpeaking ? "speaking" : "listening" : "idle";
+  return <section className="card voice-agent" aria-label="Customer voice assistant" data-phase={phase}>
     <p className="eyebrow">ELEVENLABS × GEMINI</p>
-    <h3>Prefer to talk?</h3>
-    <p className="small muted">{props.scope === "order" ? "Describe your order and review the proposed cart on screen." : "Ask about this invoice, test funds, or payment status."} Voice cannot approve or send payments.</p>
+    <div className="voice-presence" aria-hidden="true"><div className="voice-orbit" /><div className="voice-orbit second" /><div className="voice-orb"><div className="voice-wave">{[0, 1, 2, 3, 4].map(i => <span key={i} style={{ animationDelay: `${i * -0.14}s` }} />)}</div></div></div>
+    <h3>Your voice. Your pace.</h3>
+    <p className="small muted">{props.scope === "order" ? "Ask for a menu or tell me your order. A confirmation will appear when you’re ready." : "Ask about this invoice, test funds, or payment status."} Voice cannot approve or send payments.</p>
+    {props.scope === "order" && <p className="voice-example">“Two black coffees from Maple Coffee.”<br />Then: “Place my order.”</p>}
     {!configured && <p className="notice small">Voice needs ElevenLabs and Gemini server configuration. Text chat and manual checkout remain available.</p>}
-    <label className="checkbox"><input type="checkbox" checked={consent} disabled={engaged} onChange={e => setConsent(e.target.checked)} /> I agree to send microphone audio to ElevenLabs and requests and relevant order/invoice details to Gemini. Provider retention settings apply.</label>
+    <p className="small muted" id={`voice-consent-${props.scope}`}>By tapping Start voice conversation, you agree to share audio with ElevenLabs and order/invoice requests with Gemini. Provider retention settings apply.</p>
     <div className="voice-controls">
-      {!engaged ? <button className="button dark" disabled={!configured || !consent || props.disabled} onClick={start}>Start voice conversation</button> : <button className="button secondary" onClick={stop}>Stop voice</button>}
+      {!engaged ? <button className="button dark" aria-describedby={`voice-consent-${props.scope}`} disabled={!configured || props.disabled} onClick={start}>Start voice conversation</button> : <button className="button secondary" onClick={stop}>Stop voice</button>}
       {connected && <button className="button secondary" onClick={() => conversation.setMuted(!conversation.isMuted)}>{conversation.isMuted ? "Unmute microphone" : "Mute microphone"}</button>}
     </div>
     <p className="small muted" aria-live="polite">{starting || status === "connecting" ? "Connecting voice…" : connected ? conversation.isMuted ? "Microphone muted" : conversation.isSpeaking ? "Assistant speaking…" : "Listening…" : "Microphone off · sessions limited to five minutes"}</p>
+    {canVibrate ? <label className="checkbox voice-haptics"><input type="checkbox" checked={vibration} onChange={e => { const enabled = e.target.checked; setVibration(enabled); setHaptics(enabled); if (enabled) pulseHaptics(); }} /> Gentle vibration <span className="small muted">where supported</span></label> : <p className="small muted">Haptics unavailable in this browser. Voice works without vibration.</p>}
     {error && <p className="notice error" role="alert">{error}</p>}
     {messages.length > 0 && <div className="voice-transcript" aria-label="Voice transcript">{messages.map((message, i) => <p key={i}><strong>{message.role === "user" ? "You" : "Assistant"}:</strong> {message.text}</p>)}</div>}
   </section>;

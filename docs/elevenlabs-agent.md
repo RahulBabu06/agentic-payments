@@ -114,8 +114,8 @@ server with `npm run dev`.
 ## 4. Verify the live flow
 
 1. Enter the Alex Demo account at `/customer`, then open `/customer/shop`
-   on localhost (or HTTPS). Accept the audio/data disclosure and
-   click **Start voice conversation**. Grant microphone permission.
+   on localhost (or HTTPS). Read the audio/data disclosure, then
+   tap **Start voice conversation** to accept and start. Grant microphone permission.
 2. Say “Two black coffees from Maple Coffee in Oxford Circus.” The on-screen
    cart should become 2 × Black coffee, total **6.00 test USDC**.
 3. Say “Make that one.” The cart should change to one, using current cart context.
